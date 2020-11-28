@@ -190,33 +190,3 @@ defmodule Ethyl.PubSub do
     |> Enum.into(%{})
   end
 end
-
-defmodule Ethyl.PubSub.EventSource do
-  use Ethyl.Source
-
-  def start_link(opts) do
-    {pubsub, opts} = Keyword.pop!(opts, :pubsub)
-    {topic, opts} = Keyword.pop!(opts, :topic)
-    {link, opts} = Keyword.pop(opts, :link, true)
-    arg = %{pubsub: pubsub, topic: topic, link: link}
-    Ethyl.Source.start_link(__MODULE__, arg, opts)
-  end
-
-  def subscribe(%{pubsub: pubsub, topic: topic, link: link} = state) do
-    ref = make_ref()
-    :ok = Ethyl.PubSub.subscribe(pubsub, topic, link: link, tag: ref)
-    {:ok, {ref, pubsub}}
-  end
-
-  def handle_msg({ref, event}, {ref, pubsub} = state) do
-    {:events, [event], state}
-  end
-
-  def handle_msg({ref, event}, state) do
-    {:ignore, state}
-  end
-
-  def terminate(_, {_, pubsub}) do
-    Ethyl.PubSub.clear(pubsub)
-  end
-end

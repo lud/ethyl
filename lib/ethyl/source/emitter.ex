@@ -1,4 +1,8 @@
 defmodule Ethyl.Source.Emitter do
+  import GenStage.Utils
+
+  require Logger
+
   @moduledoc """
   This is a pubsub system as a data structure. It is intended to add
   subscription capability to any process capable of keeping the structure in its
@@ -9,53 +13,98 @@ defmodule Ethyl.Source.Emitter do
   in its state.
   """
   alias __MODULE__
-  defstruct subs: []
+
+  @compile {:inline, send_noconnect: 2}
+
+  # mimicing GenStage for the state
+  defstruct [
+    # a map to monitor-ref to subscription ref
+    monitors: %{},
+    # a map to subscription-ref to subscription
+    listeners: %{}
+  ]
 
   require Record
-  Record.defrecordp(:rsub, :sub, pid: nil, ref: nil)
+  Record.defrecordp(:rsub, :sub, pid: nil, mref: nil)
   import Kernel, except: [lenght: 1]
 
   def new() do
     %Emitter{}
   end
 
-  def length(%Emitter{subs: subs}) do
-    Kernel.length(subs)
+  def size(%Emitter{listeners: listeners}) do
+    Map.size(listeners)
   end
 
-  def subscribe(%Emitter{subs: subs} = em, pid) when is_pid(pid) do
-    ref = Process.monitor(pid)
-    sub = rsub(pid: pid, ref: ref)
-    {:ok, %Emitter{em | subs: [sub | subs]}}
-  end
+  def subscribe(server, opts \\ [], ref \\ make_ref()) when is_list(opts) do
+    msg = {:"$etl_source", {self(), ref}, {:subscribe, opts}}
 
-  def emit(%Emitter{subs: subs} = em, msg) do
-    Enum.map(subs, fn rsub(pid: pid) -> send(pid, msg) end)
-    :ok
-  end
-
-  def handle_down(%Emitter{subs: subs} = em, {:DOWN, ref, :process, pid, _}) do
-    case remove_ref(subs, ref, []) do
-      {:ok, subs} -> {:ok, %Emitter{em | subs: subs}}
-      :unknown -> :unknown
+    case send_to_name(server, msg) do
+      :ok -> {:ok, ref}
+      {:error, _} = err -> err
     end
   end
 
+  defp send_to_name(server, msg) do
+    case GenServer.whereis(server) do
+      nil ->
+        {:error, :noproc}
+
+      pid ->
+        send(pid, msg)
+        :ok
+    end
+  end
+
+  def handle_subscribe(
+        %Emitter{
+          listeners: listeners
+        } = em,
+        {:"$etl_source", {listener_pid, ref} = from, {:subscribe, opts}}
+      )
+      when is_pid(listener_pid) do
+    case listeners do
+      %{^ref => _} ->
+        Logger.error(
+          "Source emitter #{inspect(Utils.self_name())} received duplicated subscription from: #{
+            from
+          }"
+        )
+
+        msg = {:"$etl_listener", {self(), ref}, {:cancel, :duplicated_subscription}}
+        send_noconnect(listener_pid, msg)
+        {:error, :duplicated}
+
+      %{} ->
+        mref = Process.monitor(listener_pid)
+        em = put_in(em.monitors[mref], ref)
+
+        em =
+          put_in(
+            em.listeners[ref],
+            rsub(pid: listener_pid, mref: mref)
+          )
+
+        {:ok, em}
+    end
+  end
+
+  def emit(%Emitter{listeners: listeners} = em, msg) do
+    Enum.map(listeners, fn {ref, rsub(pid: pid)} ->
+      send(pid, {:"$etl_listener", {self(), ref}, {:event, msg}})
+    end)
+
+    :ok
+  end
+
+  def handle_down(%Emitter{monitors: monitors} = em, {:DOWN, mref, :process, pid, _})
+      when is_map_key(monitors, mref) do
+    {ref, em} = pop_in(em.monitors[mref])
+    {rsub(mref: ^mref), em} = pop_in(em.listeners[ref])
+    {:ok, em}
+  end
+
   def handle_down(%Emitter{}, {:DOWN, _, _, _, _}) do
-    :unknown
-  end
-
-  defp remove_ref([rsub(ref: ref) | rest], ref, acc) do
-    # note, we do not care about the order of subscriptions, so we do not try
-    # to preserve it while iterating over the lists.
-    {:ok, rest ++ acc}
-  end
-
-  defp remove_ref([other | rest], ref, acc) do
-    remove_ref(rest, ref, [other | acc])
-  end
-
-  defp remove_ref([], _, _) do
     :unknown
   end
 
@@ -63,27 +112,30 @@ defmodule Ethyl.Source.Emitter do
     clear_pid(em, pid)
   end
 
-  def clear_pid(%Emitter{subs: subs} = em, pid) when is_pid(pid) do
-    case do_clear_pid(subs, pid, {[], 0}) do
-      {:ok, subs} -> {:ok, %Emitter{em | subs: subs}}
-      :unknown -> :unknown
+  def clear_pid(%Emitter{listeners: listeners, monitors: monitors} = em, pid) when is_pid(pid) do
+    case do_clear_pid(Map.to_list(listeners), pid, {[], []}) do
+      {_, []} ->
+        :unknown
+
+      {rest_listeners, mrefs} ->
+        {:ok, %Emitter{listeners: rest_listeners, monitors: Map.drop(monitors, mrefs)}}
     end
   end
 
-  defp do_clear_pid([rsub(pid: pid, ref: ref) | subs], pid, {acc, count}) do
-    Process.demonitor(ref, [:flush])
-    do_clear_pid(subs, pid, {acc, count + 1})
+  defp do_clear_pid([{_, rsub(pid: pid, mref: mref)} | subs], pid, {keep, mrefs}) do
+    Process.demonitor(mref, [:flush])
+    do_clear_pid(subs, pid, {keep, [mref | mrefs]})
   end
 
-  defp do_clear_pid([sub | subs], pid, {acc, count}) do
-    do_clear_pid(subs, pid, {[sub | acc], count})
+  defp do_clear_pid([sub | subs], pid, {keep, mrefs}) do
+    do_clear_pid(subs, pid, {[sub | keep], mrefs})
   end
 
-  defp do_clear_pid([], pid, {_, 0}) do
-    :unknown
+  defp do_clear_pid([], pid, {keep, mrefs}) do
+    {Map.new(keep), mrefs}
   end
 
-  defp do_clear_pid([], _pid, {acc, _count}) do
-    {:ok, acc}
+  defp send_noconnect(pid, msg) do
+    Process.send(pid, msg, [:noconnect])
   end
 end

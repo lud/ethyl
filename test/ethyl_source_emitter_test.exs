@@ -6,15 +6,21 @@ defmodule Ethyl.Source.EmitterTest do
 
   test "can subscribe and publish" do
     em = Emitter.new()
-    assert {:ok, em} = Emitter.subscribe(em, self())
-    assert 1 = Emitter.length(em)
+    ref = make_ref()
+
+    assert {:ok, em} =
+             Emitter.handle_subscribe(em, {:"$etl_source", {self(), ref}, {:subscribe, []}})
+
+    assert 1 = Emitter.size(em)
     assert :ok = Emitter.emit(em, :hello)
-    assert_receive :hello
+    this = self()
+    assert_receive {:"$etl_listener", {^this, ^ref}, {:event, :hello}}
   end
 
   test "will set monitors and can handle them" do
     em = Emitter.new()
     parent = self()
+    ref = make_ref()
 
     child =
       spawn(fn ->
@@ -23,19 +29,22 @@ defmodule Ethyl.Source.EmitterTest do
         end
       end)
 
-    assert {:ok, em} = Emitter.subscribe(em, child)
-    assert 1 = Emitter.length(em)
+    assert {:ok, em} =
+             Emitter.handle_subscribe(em, {:"$etl_source", {child, ref}, {:subscribe, []}})
+
+    assert 1 = Emitter.size(em)
     assert :ok = Emitter.emit(em, :some_msg)
     refute_receive :some_msg
-    assert_receive {:child_received, :some_msg}
+    this = self()
+    assert_receive {:child_received, {:"$etl_listener", {^this, ^ref}, {:event, :some_msg}}}
     downmsg = assert_receive {:DOWN, _ref, :process, ^child, :normal}
 
     # The emitter doesn't know about the down message yet so the size is still 1
-    assert 1 = Emitter.length(em)
+    assert 1 = Emitter.size(em)
 
     # Now it will remove the subscription
     assert {:ok, em} = Emitter.handle_down(em, downmsg)
-    assert 0 = Emitter.length(em)
+    assert 0 = Emitter.size(em)
 
     # It will not handle unknown :DOWN messages
     {other_pid, ref} = spawn_monitor(fn -> :ok end)
@@ -47,29 +56,35 @@ defmodule Ethyl.Source.EmitterTest do
     prev_trap_exit = Process.flag(:trap_exit, true)
 
     em = Emitter.new()
-    parent = self()
 
     # Handling exit for a known child
     child = spawn_link(fn -> Process.sleep(:infinity) end)
-    assert {:ok, em} = Emitter.subscribe(em, child)
-    assert 1 = Emitter.length(em)
+    ref = make_ref()
+
+    assert {:ok, em} =
+             Emitter.handle_subscribe(em, {:"$etl_source", {child, ref}, {:subscribe, []}})
+
+    assert 1 = Emitter.size(em)
     assert Process.alive?(child)
     Process.exit(child, :byebye)
     await_down(child)
     exitmsg = assert_receive {:EXIT, ^child, :byebye}
+    exitmsg |> IO.inspect(label: "known exitmsg")
 
     # The emitter can handle the exit message
     assert {:ok, em} = Emitter.handle_exit(em, exitmsg)
-    assert 0 = Emitter.length(em)
+    assert 0 = Emitter.size(em)
     # The down message has been flushed
     refute_receive {:DOWN, _ref, :process, _, _}
 
     # Handling unknown exit messages - not subscribed
     other_child = spawn_link(fn -> Process.sleep(:infinity) end)
+    IO.puts("other child pid: #{inspect(other_child)}")
     assert Process.alive?(other_child)
     Process.exit(other_child, :byebye)
     await_down(other_child)
     exitmsg = assert_receive {:EXIT, ^other_child, :byebye}
+    exitmsg |> IO.inspect(label: "other exitmsg")
     assert :unknown = Emitter.handle_exit(em, exitmsg)
     Process.flag(:trap_exit, prev_trap_exit)
   end

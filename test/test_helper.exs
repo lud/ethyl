@@ -120,13 +120,13 @@ defmodule Ethyl.TestHelper do
     end
   end
 
-  def await_down(pid) do
+  def await_down(pid, timeout \\ 1000) do
     ref = Process.monitor(pid)
 
     receive do
       {:DOWN, ^ref, :process, ^pid, _} -> :ok
     after
-      1000 -> exit({:process_is_not_DOWN, pid})
+      timeout -> exit({:process_is_not_DOWN, pid})
     end
   end
 end

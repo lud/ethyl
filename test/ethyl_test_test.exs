@@ -1,7 +1,6 @@
-defmodule Ethyl.SourceTest do
+defmodule Ethyl.TestTest do
   use ExUnit.Case, async: true
   import Ethyl.TestHelper
-  doctest Ethyl.Source
 
   test "producer assertion test" do
     # We rely on a custom assertion to assert that sources emit expected events
@@ -39,22 +38,5 @@ defmodule Ethyl.SourceTest do
     {:ok, producer} = Counter.start_link(-1000)
     assert_producer_events(producer, [-1000, -999, -998, -997])
     GenStage.stop(producer)
-  end
-
-  test "listen to a pubsub event" do
-    topic = :my_topic
-    {:ok, ps} = Ethyl.PubSub.start_link()
-    {:ok, source} = Ethyl.PubSub.EventSource.start_link(pubsub: ps, topic: topic)
-
-    Ethyl.PubSub.publish(ps, topic, "these")
-    Ethyl.PubSub.publish(ps, topic, "are")
-
-    spawn(fn ->
-      Process.sleep(100)
-      Ethyl.PubSub.publish(ps, topic, "some")
-      Ethyl.PubSub.publish(ps, topic, "words")
-    end)
-
-    assert_producer_events(source, ~w(these are some words))
   end
 end
