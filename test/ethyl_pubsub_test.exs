@@ -1,5 +1,5 @@
 defmodule Ethyl.PubSubTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   doctest Ethyl.PubSub
   import Ethyl.TestHelper
 

@@ -1,5 +1,5 @@
 defmodule Ethyl.Source.EmitterTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   import Ethyl.TestHelper
   doctest Ethyl.Source.Emitter
   alias Ethyl.Source.Emitter

@@ -1,5 +1,5 @@
 defmodule EthylTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   doctest Ethyl
 
   test "greets the world" do

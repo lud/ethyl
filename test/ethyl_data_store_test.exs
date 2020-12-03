@@ -73,8 +73,8 @@ defmodule Ethyl.Source.DataStoreTest do
     # insert the key 1001 twice and expect it to be
     records = [
       %{key: 1000, name: "r0b07"},
-      %{key: 1001, name: "PoorGuy"},
-      %{key: 1001, name: "Replaced"}
+      %{key: 1001, name: "G4st_n"},
+      %{key: 1002, name: "f4n|-4s10"}
     ]
 
     for rec <- records do

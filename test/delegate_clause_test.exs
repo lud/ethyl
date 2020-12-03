@@ -1,5 +1,5 @@
 defmodule Ethyl.DelegateClauseTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   defmodule BaseMod do
     def get_val(:a), do: {__MODULE__, "a"}

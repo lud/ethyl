@@ -1,6 +1,7 @@
 defmodule Ethyl.Source.GenStageProducerListener do
   use GenStage
   require Logger
+  alias Ethyl.Source
   alias Ethyl.Source.Emitter
 
   @todo "Allow multiple, uniquely tagged sources"
