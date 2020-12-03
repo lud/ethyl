@@ -33,9 +33,11 @@ defmodule Ethyl.TestHelper do
       :done ->
         assert true
         GenStage.stop(consumer, :normal, 5000)
+        Process.demonitor(mref, [:flush])
 
       {:failed, expected, other} ->
         GenStage.stop(consumer, :normal, 5000)
+        Process.demonitor(mref, [:flush])
 
         flunk("""
         Expected event: #{inspect(expected)}
@@ -43,6 +45,7 @@ defmodule Ethyl.TestHelper do
         """)
 
       :timeout ->
+        Process.demonitor(mref, [:flush])
         flunk("Expected event but got timeout")
     end
   end
@@ -127,6 +130,14 @@ defmodule Ethyl.TestHelper do
       {:DOWN, ^ref, :process, ^pid, _} -> :ok
     after
       timeout -> exit({:process_is_not_DOWN, pid})
+    end
+  end
+
+  def flush_messages(timeout \\ 1000) do
+    receive do
+      msg -> [msg | flush_messages(timeout)]
+    after
+      timeout -> []
     end
   end
 end

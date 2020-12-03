@@ -14,7 +14,7 @@ defmodule Ethyl.Source.EmitterTest do
     assert 1 = Emitter.size(em)
     assert :ok = Emitter.emit(em, :hello)
     this = self()
-    assert_receive {:"$etl_listener", {^this, ^ref}, {:event, :hello}}
+    assert_receive {:"$etl_listener", {^this, ^ref}, {:data, :hello}}
   end
 
   test "will set monitors and can handle them" do
@@ -36,7 +36,7 @@ defmodule Ethyl.Source.EmitterTest do
     assert :ok = Emitter.emit(em, :some_msg)
     refute_receive :some_msg
     this = self()
-    assert_receive {:child_received, {:"$etl_listener", {^this, ^ref}, {:event, :some_msg}}}
+    assert_receive {:child_received, {:"$etl_listener", {^this, ^ref}, {:data, :some_msg}}}
     downmsg = assert_receive {:DOWN, _ref, :process, ^child, :normal}
 
     # The emitter doesn't know about the down message yet so the size is still 1
@@ -69,7 +69,6 @@ defmodule Ethyl.Source.EmitterTest do
     Process.exit(child, :byebye)
     await_down(child)
     exitmsg = assert_receive {:EXIT, ^child, :byebye}
-    exitmsg |> IO.inspect(label: "known exitmsg")
 
     # The emitter can handle the exit message
     assert {:ok, em} = Emitter.handle_exit(em, exitmsg)
@@ -79,12 +78,10 @@ defmodule Ethyl.Source.EmitterTest do
 
     # Handling unknown exit messages - not subscribed
     other_child = spawn_link(fn -> Process.sleep(:infinity) end)
-    IO.puts("other child pid: #{inspect(other_child)}")
     assert Process.alive?(other_child)
     Process.exit(other_child, :byebye)
     await_down(other_child)
     exitmsg = assert_receive {:EXIT, ^other_child, :byebye}
-    exitmsg |> IO.inspect(label: "other exitmsg")
     assert :unknown = Emitter.handle_exit(em, exitmsg)
     Process.flag(:trap_exit, prev_trap_exit)
   end

@@ -36,26 +36,6 @@ defmodule Ethyl.Source.Emitter do
     Map.size(listeners)
   end
 
-  def subscribe(server, opts \\ [], ref \\ make_ref()) when is_list(opts) do
-    msg = {:"$etl_source", {self(), ref}, {:subscribe, opts}}
-
-    case send_to_name(server, msg) do
-      :ok -> {:ok, ref}
-      {:error, _} = err -> err
-    end
-  end
-
-  defp send_to_name(server, msg) do
-    case GenServer.whereis(server) do
-      nil ->
-        {:error, :noproc}
-
-      pid ->
-        send(pid, msg)
-        :ok
-    end
-  end
-
   def handle_subscribe(
         %Emitter{
           listeners: listeners
@@ -70,6 +50,8 @@ defmodule Ethyl.Source.Emitter do
             from
           }"
         )
+
+        exit({:todo, :duplicated})
 
         msg = {:"$etl_listener", {self(), ref}, {:cancel, :duplicated_subscription}}
         send_noconnect(listener_pid, msg)
@@ -91,7 +73,7 @@ defmodule Ethyl.Source.Emitter do
 
   def emit(%Emitter{listeners: listeners} = em, msg) do
     Enum.map(listeners, fn {ref, rsub(pid: pid)} ->
-      send(pid, {:"$etl_listener", {self(), ref}, {:event, msg}})
+      send(pid, {:"$etl_listener", {self(), ref}, {:data, msg}})
     end)
 
     :ok
