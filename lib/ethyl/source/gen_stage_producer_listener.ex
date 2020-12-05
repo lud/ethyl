@@ -3,11 +3,12 @@ defmodule Ethyl.Source.GenStageProducerListener do
   require Logger
   alias Ethyl.Source
   alias Ethyl.Source.Emitter
+  require Ethyl.Utils, as: Utils
 
   @todo "Allow multiple, uniquely tagged sources"
   @todo """
   Maybe listener should be renamed to entrypoint and :"$etl_entrypoint" to make
-  obvious that source/listeners are used at the beginning of a data pipeline, 
+  obvious that source/listeners are used at the beginning of a data pipeline,
   whereas the rest of the line is GenStage based.
   """
 
@@ -38,13 +39,35 @@ defmodule Ethyl.Source.GenStageProducerListener do
   end
 
   def start_link(sources, opts \\ []) do
-    sources = List.wrap(sources)
-    GenStage.start_link(__MODULE__, sources, opts)
+    do_start(:start_link, sources, opts)
   end
 
   def start(sources, opts \\ []) do
-    sources = List.wrap(sources)
-    GenStage.start(__MODULE__, sources, opts)
+    do_start(:start, sources, opts)
+  end
+
+  defp do_start(fun, sources, opts) do
+    case validate_sources(sources) do
+      {:ok, sources} -> apply(GenStage, fun, [__MODULE__, sources, opts])
+      {:error, _} = err -> err
+    end
+  end
+
+  defp validate_sources(sources) when not is_list(sources) do
+    validate_sources(List.wrap(sources))
+  end
+
+  defp validate_sources(sources) when is_list(sources) do
+    sources
+    |> Enum.all?(fn
+      {source, opts} when Utils.is_name(source) and is_list(opts) -> true
+      _ -> false
+    end)
+    |> if do
+      {:ok, sources}
+    else
+      {:error, {:bad_sources, sources}}
+    end
   end
 
   def init(sources) do
@@ -69,15 +92,12 @@ defmodule Ethyl.Source.GenStageProducerListener do
     {:ok, Map.new(acc)}
   end
 
-  def send_subscription(source) do
-    case GenServer.whereis(source) do
-      nil ->
-        {:error, :noproc}
-
-      pid ->
-        ref = Process.monitor(pid)
-        :ok = Source.subscribe(pid, ref, [])
-        {:ok, {ref, {:default, pid}}}
+  def send_subscription({name, opts}) do
+    with {:ok, pid} <- Ethyl.Opts.resolve_name(name),
+         {:ok, ref} <- Source.subscribe_monitor(pid, opts) do
+      # return a key/value tuple to store all subscriptions in a map
+      # in the value we keep a tag and a pid.
+      _sub_kv = {:ok, {ref, {:default, pid}}}
     end
   end
 

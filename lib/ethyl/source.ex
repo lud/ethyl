@@ -1,21 +1,40 @@
 defmodule Ethyl.Source do
-  def subscribe(server, ref, opts \\ []) when is_list(opts) do
-    msg = {:"$etl_source", {self(), ref}, {:subscribe, opts}}
+  require Ethyl.Utils, as: Utils
+  alias Ethyl.Opts
 
-    case send_to_name(server, msg) do
-      :ok -> :ok
-      {:error, _} = err -> err
+  def subscribe({server, opts}) when Utils.is_name(server) and is_list(opts) do
+    do_subscribe(server, opts, make_ref())
+  end
+
+  def subscribe(server, opts) when Utils.is_name(server) and is_list(opts) do
+    do_subscribe(server, opts, make_ref())
+  end
+
+  def subscribe(server, opts, ref) do
+    case Opts.resolve_name(server) do
+      {:ok, pid} -> do_subscribe(pid, opts, ref)
+      {:error, :noproc} -> {:error, {:source_dead, server}}
     end
   end
 
-  defp send_to_name(server, msg) do
-    case GenServer.whereis(server) do
-      nil ->
-        {:error, :noproc}
+  def subscribe_monitor({server, opts}) when Utils.is_name(server) and is_list(opts) do
+    subscribe_monitor(server, opts)
+  end
 
-      pid ->
-        send(pid, msg)
-        :ok
+  def subscribe_monitor(server, opts) when Utils.is_name(server) and is_list(opts) do
+    case Opts.resolve_name(server) do
+      {:ok, pid} ->
+        ref = Process.monitor(pid)
+        do_subscribe(pid, opts, ref)
+
+      {:error, :noproc} ->
+        {:error, {:source_dead, server}}
     end
+  end
+
+  defp do_subscribe(pid, opts, ref) do
+    msg = {:"$etl_source", {self(), ref}, {:subscribe, opts}}
+    send(pid, msg)
+    {:ok, ref}
   end
 end

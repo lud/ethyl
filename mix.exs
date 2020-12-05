@@ -26,7 +26,8 @@ defmodule Ethyl.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:gen_stage, "~> 1.0"}
+      {:gen_stage, "~> 1.0"},
+      {:nimble_options, "~> 0.3.5"}
       # {:absinthe, "~> 1.5"}
     ]
   end

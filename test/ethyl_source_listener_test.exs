@@ -27,15 +27,20 @@ defmodule Ethyl.Source.ListenerTest do
       {:next, :await_event, em}
     end
 
+    def await_event(msg, em) do
+      Logger.error("source received unexpected message: #{inspect(msg)}")
+      {:next, :await_event, em}
+    end
+
     def terminate(reason, _) do
       Logger.debug("source terminate: #{inspect(reason)}")
     end
   end
 
   test "validate the source message API" do
-    {:ok, source} = MicroFSM.start(MySource, [], debug: [:trace])
+    {:ok, source} = MicroFSM.start(MySource, [])
 
-    {:ok, listener} = GenStageProducerListener.start([source])
+    {:ok, listener} = GenStageProducerListener.start([{source, []}])
     send(source, {:forward, :hello})
     send(source, {:forward, :i})
     send(source, {:forward, :am})

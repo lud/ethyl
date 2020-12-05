@@ -71,7 +71,11 @@ defmodule Ethyl.Source.Emitter do
     end
   end
 
-  def emit(%Emitter{listeners: listeners} = em, msg) do
+  def handle_subscribe(_, msg) do
+    {:error, {:invalid_message, msg}}
+  end
+
+  def emit(%Emitter{listeners: listeners} = _em, msg) do
     Enum.map(listeners, fn {ref, rsub(pid: pid)} ->
       send(pid, {:"$etl_listener", {self(), ref}, {:data, msg}})
     end)
@@ -79,7 +83,7 @@ defmodule Ethyl.Source.Emitter do
     :ok
   end
 
-  def handle_down(%Emitter{monitors: monitors} = em, {:DOWN, mref, :process, pid, _})
+  def handle_down(%Emitter{monitors: monitors} = em, {:DOWN, mref, :process, _pid, _})
       when is_map_key(monitors, mref) do
     {ref, em} = pop_in(em.monitors[mref])
     {rsub(mref: ^mref), em} = pop_in(em.listeners[ref])
@@ -100,7 +104,7 @@ defmodule Ethyl.Source.Emitter do
         :unknown
 
       {rest_listeners, mrefs} ->
-        {:ok, %Emitter{listeners: rest_listeners, monitors: Map.drop(monitors, mrefs)}}
+        {:ok, %Emitter{em | listeners: rest_listeners, monitors: Map.drop(monitors, mrefs)}}
     end
   end
 
@@ -113,7 +117,7 @@ defmodule Ethyl.Source.Emitter do
     do_clear_pid(subs, pid, {[sub | keep], mrefs})
   end
 
-  defp do_clear_pid([], pid, {keep, mrefs}) do
+  defp do_clear_pid([], _pid, {keep, mrefs}) do
     {Map.new(keep), mrefs}
   end
 
